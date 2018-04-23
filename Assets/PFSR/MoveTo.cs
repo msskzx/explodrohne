@@ -16,7 +16,7 @@ public class MoveTo : MonoBehaviour
     private Vector3[] directions = new Vector3[8];
     private char empty, occupied, unkown;
     private String targetTag;
-    
+    private ArrayList targetLocations;
 
     void Start()
     {
@@ -29,6 +29,7 @@ public class MoveTo : MonoBehaviour
         mapSize = 6;
         cellSize = radius * 2 / 3;
         map = new char[mapSize, mapSize];
+        targetLocations = new ArrayList();
 
         empty = 'O';
         occupied = 'X';
@@ -55,14 +56,35 @@ public class MoveTo : MonoBehaviour
 
         PrintMap();
 
+
+        // pool of all coordinates to explore
+        Vector3[] tmparr = new Vector3[mapSize * mapSize];
+        for (int i = 0; i < mapSize; i++)
+            for (int j = 0; j < mapSize; j++)
+                tmparr[mapSize * i + j] = new Vector3(i, 1, j);
+
+        // shuffle the locations
+        System.Random rnd = new System.Random();
+        for (int i = 0; i < tmparr.Length; i++)
+        {
+            Vector3 tmpVector = tmparr[0];
+            int ind = rnd.Next(0, tmparr.Length);
+            tmparr[0] = tmparr[ind];
+            tmparr[ind] = tmpVector;
+        }
+
+        // fill the targetLocations
+        for (int i = 0; i < tmparr.Length; i++)
+            targetLocations.Add(tmparr[i]);
+
         // mark the current cell as free
         MarkCell((int)agent.transform.position.x, (int)agent.transform.position.z, empty);
-
     }
 
     void OnCollisionEnter(Collision collision)
     {
-        if(collision.collider.tag == targetTag)
+        // hit a target and you have more places to explore
+        if (collision.collider.tag == targetTag && targetLocations.Count > 0)
         {
             // destroy on reaching the object
             Destroy(collision.gameObject);
@@ -70,25 +92,27 @@ public class MoveTo : MonoBehaviour
             NavMeshAgent agent = GetComponent<NavMeshAgent>();
             GameObject targetInstance;
 
-            // generate a position outside the view circle
-            // this will be the position of the next target
-            System.Random rnd = new System.Random();
-
-            // TODO
-            // make sure the next position is an unexplored spot
-            float xt = rnd.Next(-1*radius, radius+1) + (2*radius);
-            float zt = rnd.Next(-1*radius, radius+1) + (2*radius);
-
-            // the new destination
+            // get a new target destination, remove it from the array
             targetInstance = Instantiate(targetPrefab);
-            targetInstance.transform.position = new Vector3(xt, 1, zt);
+            Vector3 nextPosition = (Vector3)targetLocations[0];
+            targetLocations.RemoveAt(0);
+            targetInstance.transform.position = new Vector3(nextPosition.x * cellSize, 1, nextPosition.z * cellSize);
             agent.destination = targetInstance.transform.position;
 
             PrintMap();
+
+            // on reaching a target, remove all cells in the visiblity circle from the locations array
+            for (int i = 0; i < targetLocations.Count; i++)
+            {
+                Vector3 tmp = (Vector3)targetLocations[i];
+                if (map[(int)tmp.x, (int)tmp.z] != unkown)
+                    targetLocations.RemoveAt(i);
+            }
         }
 
     }
 
+    // print the map
     void PrintMap()
     {
         String s = "";
@@ -100,7 +124,7 @@ public class MoveTo : MonoBehaviour
         }
         Debug.Log(s);
     }
-    
+
     void Update()
     {
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
@@ -113,22 +137,25 @@ public class MoveTo : MonoBehaviour
             if (Physics.Raycast(agent.transform.position, directions[i], out hit, range))
             {
                 // There's an object, mark this cell as occupied
-                MarkCell((int) hit.transform.position.x, (int) hit.transform.position.z, occupied);
+                MarkCell((int)hit.transform.position.x, (int)hit.transform.position.z, occupied);
+
             }
             else
             {
                 // mark this cell as free
-                MarkCell((int) agent.transform.position.x + (int)(cellSize * directions[i].x), (int) agent.transform.position.z + (int)(cellSize * directions[i].x), empty);
+                MarkCell((int)agent.transform.position.x + (int)(cellSize * directions[i].x), (int)agent.transform.position.z + (int)(cellSize * directions[i].x), empty);
             }
         }
     }
 
+    // mark this cell as free or occupied
     void MarkCell(int x, int z, char c)
     {
         x /= cellSize;
         z /= cellSize;
-        if(map[x, z] != occupied)
+        if (x > -1 && x < mapSize && z > -1 && z < mapSize && map[x, z] != occupied)
             map[x, z] = c;
     }
-    
+
 }
+
