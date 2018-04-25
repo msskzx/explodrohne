@@ -17,6 +17,10 @@ public class MoveTo : MonoBehaviour
     private char empty, occupied, unkown;
     private String targetTag;
     private ArrayList targetLocations;
+    private float prevDistance;
+    private float curDistance;
+    private int distanceCounter;
+
 
     void Start()
     {
@@ -35,6 +39,10 @@ public class MoveTo : MonoBehaviour
         occupied = 'X';
         unkown = '?';
         targetTag = "Target";
+        curDistance = 0;
+        prevDistance = 0;
+        distanceCounter = 0;
+
 
         directions[0] = new Vector3(0, 0, 1);
         directions[1] = new Vector3(0, 0, -1);
@@ -89,15 +97,8 @@ public class MoveTo : MonoBehaviour
             // destroy on reaching the object
             Destroy(collision.gameObject);
 
-            NavMeshAgent agent = GetComponent<NavMeshAgent>();
-            GameObject targetInstance;
-
-            // get a new target destination, remove it from the array
-            targetInstance = Instantiate(targetPrefab);
-            Vector3 nextPosition = (Vector3)targetLocations[0];
-            targetLocations.RemoveAt(0);
-            targetInstance.transform.position = new Vector3(nextPosition.x * cellSize, 1, nextPosition.z * cellSize);
-            agent.destination = targetInstance.transform.position;
+            // create a new target
+            NewTarget();
 
             PrintMap();
 
@@ -110,6 +111,24 @@ public class MoveTo : MonoBehaviour
             }
         }
 
+    }
+
+    // creating a new target destination
+    void NewTarget()
+    {
+        // destroy the object
+        Destroy(GameObject.FindWithTag(targetTag));
+
+        NavMeshAgent agent = GetComponent<NavMeshAgent>();
+        GameObject targetInstance;
+
+        // get a new target destination
+        targetInstance = Instantiate(targetPrefab);
+        Vector3 nextPosition = (Vector3)targetLocations[0];
+        // remove it from the array of possible locations
+        targetLocations.RemoveAt(0);
+        targetInstance.transform.position = new Vector3(nextPosition.x * cellSize, 1, nextPosition.z * cellSize);
+        agent.destination = targetInstance.transform.position;
     }
 
     // print the map
@@ -131,6 +150,24 @@ public class MoveTo : MonoBehaviour
         RaycastHit hit;
         int range = radius;
 
+        curDistance = getDistance(agent.transform.position, agent.destination);
+        if (curDistance != prevDistance)
+        {
+            prevDistance = curDistance;
+        }
+        else
+        {
+            distanceCounter++;
+            if (distanceCounter == 1)
+            {
+                distanceCounter = 0;
+                // fail, set cell as unreachable
+                MarkCell((int)agent.destination.x, (int)agent.destination.z, occupied);
+                // change target
+                NewTarget();
+            }
+        }
+
         // Raycast in the 8 directions
         for (int i = 0; i < 8; i++)
         {
@@ -138,7 +175,6 @@ public class MoveTo : MonoBehaviour
             {
                 // There's an object, mark this cell as occupied
                 MarkCell((int)hit.transform.position.x, (int)hit.transform.position.z, occupied);
-
             }
             else
             {
@@ -155,6 +191,14 @@ public class MoveTo : MonoBehaviour
         z /= cellSize;
         if (x > -1 && x < mapSize && z > -1 && z < mapSize && map[x, z] != occupied)
             map[x, z] = c;
+    }
+
+    float getDistance(Vector3 a, Vector3 b)
+    {
+        float x = a.x - b.x,
+            y = a.y - b.y,
+            z = a.z - b.z;
+        return (float)Math.Sqrt(x * x + y * y + z * z);
     }
 
 }
