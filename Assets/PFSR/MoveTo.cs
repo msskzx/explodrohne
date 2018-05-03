@@ -9,35 +9,40 @@ public class MoveTo : MonoBehaviour
     public GameObject targetPrefab;
     // map containing discretized view of the environment which has been explored so far
     private char[,] map;
-    // radius of the view circle around the drone
-    private int radius;
-    private int mapSize;
-    private int cellSize;
-    private Vector3[] directions = new Vector3[8];
-    private char empty, occupied, unkown, unreachable;
+    private ArrayList[] graph;
+
+    private Vector3[] directions;
     private String targetTag;
     private String obstacleTag;
     private ArrayList targetLocations;
+    private Stack routeToTarget;
+
+    // radius of the view circle around the drone
+    private const int range = 8;
+    private const int cellSize = 6;
+    private const char empty = 'O', occupied = 'X', unkown = '?', unreachable = 'U';
+    private const int MAX_VALUE = 100000;
+    private int mapSize;
+    private int V;
+
+
 
     void Start()
     {
         // the drone
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
         // radius of vision
-        radius = 8;
         mapSize = 6;
-        cellSize = 6;
         map = new char[mapSize, mapSize];
         targetLocations = new ArrayList();
-
-        empty = 'O';
-        occupied = 'X';
-        unkown = '?';
-        unreachable = 'U';
+        routeToTarget = new Stack();
+        graph = new ArrayList[mapSize * mapSize];
+        V = mapSize * mapSize;
         targetTag = "Target";
         obstacleTag = "Obstacle";
 
         // raycast directions
+        directions = new Vector3[8];
         directions[0] = new Vector3(0, 0, 1);
         directions[1] = new Vector3(0, 0, -1);
         directions[2] = new Vector3(1, 0, 0);
@@ -47,17 +52,22 @@ public class MoveTo : MonoBehaviour
         directions[6] = new Vector3(-1, 0, 1);
         directions[7] = new Vector3(-1, 0, -1);
 
-        // initialize the map with ?
+        // initialize the map
         for (int i = 0; i < mapSize; i++)
             for (int j = 0; j < mapSize; j++)
+            {
                 map[i, j] = unkown;
+                graph[i * cellSize + j] = new ArrayList();
+            }
 
         // initial target, to start exploring
-        MarkCell((int)agent.transform.position.x, (int)agent.transform.position.z, empty);
+        MarkCell(ToIndices(agent.transform.position), empty);
         Raycast8();
         PrintMap();
         NewTarget();
     }
+
+
 
     void Update()
     {
@@ -65,10 +75,14 @@ public class MoveTo : MonoBehaviour
         RemoveCandidates();
     }
 
-    Boolean doneExploring()
+
+
+    Boolean DoneExploring()
     {
         return targetLocations.Count == 0;
     }
+
+
 
     void OnCollisionEnter(Collision collision)
     {
@@ -79,15 +93,15 @@ public class MoveTo : MonoBehaviour
             Destroy(collision.gameObject);
 
             // create a new target
-            if (!doneExploring())
+            if (!DoneExploring())
             {
                 NewTarget();
             }
 
             PrintMap();
         }
-
     }
+
 
     // remove all cells that don't have adjacent unknown cells from the target locations
     void RemoveCandidates()
@@ -95,13 +109,14 @@ public class MoveTo : MonoBehaviour
         for (int i = 0; i < targetLocations.Count; i++)
         {
             Vector3 tmp = (Vector3)targetLocations[i];
-            if (!HasAdjacentUnknown((int)tmp.x, (int)tmp.z))
+            if (!HasAdjacentUnknown(tmp))
             {
                 targetLocations.RemoveAt(i);
             }
         }
-
     }
+
+
 
     // creating a new target destination
     void NewTarget()
@@ -109,14 +124,36 @@ public class MoveTo : MonoBehaviour
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
         GameObject targetInstance;
 
+        // to get the nearest cell
+        int index = targetLocations.Count - 1;
+
         // get a new target destination
         targetInstance = Instantiate(targetPrefab);
-        Vector3 nextPosition = (Vector3)targetLocations[0];
-        // remove it from the array of possible locations
-        targetLocations.RemoveAt(0);
-        targetInstance.transform.position = new Vector3(nextPosition.x * cellSize, 1, nextPosition.z * cellSize);
+        Vector3 tmpVector = (Vector3)targetLocations[index];
+        Vector3 nextPosition = new Vector3(tmpVector.x * cellSize, 1, tmpVector.z * cellSize);
+
+
+        // find a short path and add targets along that path
+        if (routeToTarget.Count == 0)
+        {
+            FindRouteToTarget((int)tmpVector.x * cellSize + (int)tmpVector.z);
+            targetLocations.RemoveAt(index);
+        }
+
+        // set target position and agent destination to the next point on the path
+        nextPosition = (Vector3)routeToTarget.Pop();
+        targetInstance.transform.position = nextPosition;
         agent.destination = targetInstance.transform.position;
+
     }
+
+
+
+    void FindRouteToTarget(int src)
+    {
+        
+    }
+
 
 
     // print the map
@@ -132,11 +169,13 @@ public class MoveTo : MonoBehaviour
         Debug.Log(s);
     }
 
+
+
+    // Raycast in 8 directions
     void Raycast8()
     {
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
         RaycastHit hit;
-        int range = radius;
 
         // Raycast in the 8 directions
         for (int i = 0; i < directions.Length; i++)
@@ -146,7 +185,7 @@ public class MoveTo : MonoBehaviour
                 if (hit.collider.tag == obstacleTag)
                 {
                     // There's an object, mark this cell as occupied
-                    MarkCell((int)hit.transform.position.x, (int)hit.transform.position.z, occupied);
+                    MarkCell(ToIndices(hit.transform.position), occupied);
                 }
             }
             else
@@ -154,16 +193,31 @@ public class MoveTo : MonoBehaviour
                 // mark this cell as free
                 int tmpx = (int)agent.transform.position.x + (int)(range * directions[i].x),
                     tmpz = (int)agent.transform.position.z + (int)(range * directions[i].z);
-                // add this cell to the candidate target locations if it has adjacent unkown cells, and if it wasn't added
-                // to the candidate list before.. i.e. if it has ?
-                if (CheckBoundaries(tmpx / cellSize, tmpz / cellSize) && HasAdjacentUnknown(tmpx / cellSize, tmpz / cellSize) && map[tmpx / cellSize, tmpz / cellSize] == '?')
+                Vector3 seenCell = new Vector3(tmpx, 1, tmpz);
+
+                if (CheckBoundaries(tmpx / cellSize, tmpz / cellSize))
                 {
-                    targetLocations.Add(new Vector3(tmpx / cellSize, 1, tmpz / cellSize));
+                    // add this cell to the candidate target locations if it has adjacent unkown cells, and if it wasn't added
+                    // to the candidate list before.. i.e. if it has ?
+                    if (HasAdjacentUnknown(ToIndices(seenCell)) && map[tmpx / cellSize, tmpz / cellSize] == '?')
+                    {
+                        targetLocations.Add(new Vector3(tmpx / cellSize, 1, tmpz / cellSize));
+                    }
+                    MarkCell(ToIndices(seenCell), empty);
+                    AddEdge(ToIndices(agent.transform.position), ToIndices(seenCell));
                 }
-                MarkCell(tmpx, tmpz, empty);
             }
         }
     }
+
+
+
+    Vector3 ToIndices(Vector3 a)
+    {
+        return new Vector3(a.x / cellSize, 1, a.z / cellSize);
+    }
+
+
 
     Boolean NotInCandidates(int x, int y, int z)
     {
@@ -176,8 +230,13 @@ public class MoveTo : MonoBehaviour
         return true;
     }
 
-    Boolean HasAdjacentUnknown(int i, int j)
+
+
+    // given indices of the cell as a Vector
+    Boolean HasAdjacentUnknown(Vector3 a)
     {
+        int i = (int)a.x,
+            j = (int)a.z;
         return (CheckBoundaries(i, j + 1) && map[i, j + 1] == '?')
             || (CheckBoundaries(i, j - 1) && map[i, j - 1] == '?')
             || (CheckBoundaries(i + 1, j + 1) && map[i + 1, j + 1] == '?')
@@ -188,18 +247,38 @@ public class MoveTo : MonoBehaviour
             || (CheckBoundaries(i - 1, j - 1) && map[i - 1, j - 1] == '?');
     }
 
+
+
+    // given indices of the cell
     Boolean CheckBoundaries(int i, int j)
     {
         return i > -1 && i < mapSize && j > -1 && j < mapSize;
     }
 
+
+
     // mark this cell as free or occupied
-    void MarkCell(int x, int z, char c)
+    // given indices of the cells
+    void MarkCell(Vector3 a, char c)
     {
-        x /= cellSize;
-        z /= cellSize;
-        if (x > -1 && x < mapSize && z > -1 && z < mapSize && map[x, z] != occupied)
+        int x = (int)a.x,
+            z = (int)a.x;
+        if (map[x, z] != occupied)
             map[x, z] = c;
+    }
+
+
+
+    // given indeces of the cells as vectors
+    void AddEdge(Vector3 a, Vector3 b)
+    {
+        int a1 = (int)a.x * cellSize + (int)a.z,
+            b1 = (int)b.x * cellSize + (int)b.z;
+        if (!graph[a1].Contains(b1))
+        {
+            graph[a1].Add(b1);
+            graph[b1].Add(a1);
+        }
     }
 
 }
