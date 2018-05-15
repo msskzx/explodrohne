@@ -21,10 +21,9 @@ public class MoveTo : MonoBehaviour
     private Stack routeToTarget;
 
     // radius of the view circle around the drone
-    private const int range = 8;
+    private const int range = 6;
     private const int cellSize = 6;
     private const char empty = 'O', occupied = 'X', unknown = '?', unreachable = 'U';
-    private const int MAX_VALUE = 100000;
     private int mapSize;
     private int V;
 
@@ -34,13 +33,12 @@ public class MoveTo : MonoBehaviour
     {
         // the drone
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
-        // radius of vision
         mapSize = 6;
         map = new char[mapSize, mapSize];
         targetLocations = new ArrayList();
         routeToTarget = new Stack();
-        graph = new ArrayList[mapSize * mapSize];
         V = mapSize * mapSize;
+        graph = new ArrayList[V];
         targetTag = "Target";
         obstacleTag = "Obstacle";
 
@@ -60,14 +58,17 @@ public class MoveTo : MonoBehaviour
             for (int j = 0; j < mapSize; j++)
             {
                 map[i, j] = unknown;
-                graph[i * cellSize + j] = new ArrayList();
+                graph[IndicesToVertex(new Vector3(i, 1, j))] = new ArrayList();
             }
 
         // initial target, to start exploring
         MarkCell(PositionToIndices(agent.transform.position), empty);
         Raycast8();
         PrintMap();
-        NewTarget();
+        if (!DoneExploring())
+        {
+            NewTarget();
+        }
     }
 
 
@@ -76,6 +77,26 @@ public class MoveTo : MonoBehaviour
     {
         Raycast8();
         RemoveCandidates();
+    }
+
+
+
+    void PrintGraph()
+    {
+        for (int i = 0; i < graph.Length; i++)
+        {
+            String s = "";
+            if (graph[i].Count > 0)
+            {
+                s = "Node" + i + ": ";
+                for (int j = 0; j < graph[i].Count; j++)
+                {
+                    s += ", " + graph[i][j];
+
+                }
+            }
+            Debug.Log(s);
+        }
     }
 
 
@@ -102,12 +123,15 @@ public class MoveTo : MonoBehaviour
             }
             else
             {
+                // no more targets mark the remaining cells as unreach-able
                 MarkUnreachable();
             }
 
             PrintMap();
+            //PrintGraph();
         }
     }
+
 
 
     // remove all cells that don't have adjacent unknown cells from the target locations
@@ -131,7 +155,7 @@ public class MoveTo : MonoBehaviour
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
         GameObject targetInstance;
 
-        // to get the nearest cell
+        // dfs, get the nearest cell
         int index = targetLocations.Count - 1;
 
         // get a new target destination
@@ -144,8 +168,7 @@ public class MoveTo : MonoBehaviour
         if (routeToTarget.Count == 0)
         {
             // find a path from the agent to the next position
-            Debug.Log(IndicesToVertex(PositionToIndices(agent.transform.position)) + ", " + IndicesToVertex(nextPosition));
-            // FindRouteToTarget(IndicesToVertex(PositionToIndices(agent.transform.position)), IndicesToVertex(nextPosition));
+            //FindRouteToTarget(IndicesToVertex(PositionToIndices(agent.transform.position)), IndicesToVertex(nextPosition));
             routeToTarget.Push(IndicesToVertex(nextPosition));
             targetLocations.RemoveAt(index);
         }
@@ -159,9 +182,10 @@ public class MoveTo : MonoBehaviour
     }
 
 
+
     Vector3 VertexToIndices(int a)
     {
-        return new Vector3(a / cellSize, 1, a % cellSize);
+        return new Vector3(a / mapSize, 1, a % mapSize);
     }
 
 
@@ -182,7 +206,7 @@ public class MoveTo : MonoBehaviour
 
     int IndicesToVertex(Vector3 a)
     {
-        return (int)a.x * cellSize + (int)a.z;
+        return (int)a.x * mapSize + (int)a.z;
     }
 
 
@@ -191,6 +215,7 @@ public class MoveTo : MonoBehaviour
     {
         return new Vector3(a.x * cellSize, 1, a.z * cellSize);
     }
+
 
 
     void FindRouteToTarget(int src, int dest)
@@ -280,12 +305,12 @@ public class MoveTo : MonoBehaviour
             else
             {
                 // mark this cell as free
+                // position of the cell
                 int tmpx = (int)agent.transform.position.x + (int)(range * directions[i].x),
                     tmpz = (int)agent.transform.position.z + (int)(range * directions[i].z);
-                // position of the cell
                 Vector3 seenCell = new Vector3(tmpx, 1, tmpz);
 
-                if (CheckBoundaries(PositionToIndices(seenCell)))
+                if (CheckBoundaries(PositionToIndices(seenCell))) 
                 {
                     // add this cell to the candidate target locations if it has adjacent unkown cells, 
                     // and if it wasn't added to the candidate list before.. i.e. if it has ?
@@ -295,30 +320,17 @@ public class MoveTo : MonoBehaviour
                     }
 
                     MarkCell(PositionToIndices(seenCell), empty);
-                    AddEdge(PositionToIndices(agent.transform.position), PositionToIndices(seenCell));
+                    // Debug.Log(PositionToIndices(agent.transform.position) + ", " + PositionToIndices(seenCell));
+                    //AddEdge(PositionToIndices(agent.transform.position), PositionToIndices(seenCell));
                 }
             }
         }
     }
 
 
-
     Vector3 PositionToIndices(Vector3 a)
     {
         return new Vector3((int)a.x / cellSize, 1, (int)a.z / cellSize);
-    }
-
-
-
-    Boolean NotInCandidates(int x, int y, int z)
-    {
-        for (int i = 0; i < targetLocations.Count; i++)
-        {
-            Vector3 tmp = (Vector3)targetLocations[i];
-            if (tmp.x == x && tmp.y == y && tmp.z == z)
-                return false;
-        }
-        return true;
     }
 
 
@@ -356,7 +368,7 @@ public class MoveTo : MonoBehaviour
     {
         int x = (int)a.x,
             z = (int)a.z;
-        if (map[x, z] != occupied)
+        if (CheckBoundaries(a) && map[x, z] != occupied)
         {
             map[x, z] = c;
         }
@@ -369,8 +381,9 @@ public class MoveTo : MonoBehaviour
     {
         int a1 = IndicesToVertex(a),
             b1 = IndicesToVertex(b);
-        if (!graph[a1].Contains(b1))
+        if (!graph[a1].Contains(b1) && a1 != b1)
         {
+            //Debug.Log(a +": " + a1 +" -- "+ b +": " + b1);
             graph[a1].Add(b1);
             graph[b1].Add(a1);
         }
