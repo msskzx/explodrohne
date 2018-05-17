@@ -55,20 +55,53 @@ public class MoveTo : MonoBehaviour
 
         // initialize the map
         for (int i = 0; i < mapSize; i++)
+        {
             for (int j = 0; j < mapSize; j++)
             {
                 map[i, j] = unknown;
                 graph[IndicesToVertex(new Vector3(i, 1, j))] = new ArrayList();
             }
+        }
+
+        //TMP: adding edges
+        //for (int i = 0; i < mapSize; i++)
+        //{
+        //    for (int j = 0; j < mapSize; j++)
+        //    {
+        //        for (int k = 0; k < directions.Length; k++)
+        //        {
+        //            Vector3 seenCell = new Vector3(i, 1, j);
+        //            Vector3 surroundingCell = new Vector3(seenCell.x + directions[k].x, 1, seenCell.z + directions[k].z);
+        //            if (CheckBoundaries(surroundingCell))
+        //            {
+        //                AddEdge(IndicesToVertex(seenCell), IndicesToVertex(surroundingCell));
+        //            }
+        //        }
+        //    }
+        //}
+
+
+        // print vertices numbering
+        String s = "";
+        for (int i = 0; i < mapSize; i++)
+        {
+            for (int j = 0; j < mapSize; j++)
+                s += " " + IndicesToVertex(new Vector3(i, 1, j));
+            s += "\n";
+        }
+        Debug.Log(s);
+
 
         // initial target, to start exploring
         MarkCell(PositionToIndices(agent.transform.position), empty);
         Raycast8();
         PrintMap();
+        //PrintTargetLocations();
         if (!DoneExploring())
         {
             NewTarget();
         }
+        //PrintGraph();
     }
 
 
@@ -77,6 +110,10 @@ public class MoveTo : MonoBehaviour
     {
         Raycast8();
         RemoveCandidates();
+        //if (DoneExploring())
+        //{
+        //    PrintGraph();
+        //}
     }
 
 
@@ -115,7 +152,7 @@ public class MoveTo : MonoBehaviour
         {
             // destroy on reaching the object
             Destroy(collision.gameObject);
-
+            //PrintGraph();
             // create a new target
             if (!DoneExploring())
             {
@@ -128,10 +165,22 @@ public class MoveTo : MonoBehaviour
             }
 
             PrintMap();
+            //PrintTargetLocations();
             //PrintGraph();
         }
     }
 
+
+
+    void PrintTargetLocations()
+    {
+        String x = "Target Locations: ";
+        for (int i = 0; i < targetLocations.Count; i++)
+        {
+            x += IndicesToVertex((Vector3)targetLocations[i]) + ", ";
+        }
+        Debug.Log(x);
+    }
 
 
     // remove all cells that don't have adjacent unknown cells from the target locations
@@ -163,13 +212,12 @@ public class MoveTo : MonoBehaviour
         // indices on the grid
         Vector3 nextPosition = (Vector3)targetLocations[index];
 
-
         // find a short path and add targets along that path
         if (routeToTarget.Count == 0)
         {
             // find a path from the agent to the next position
-            //FindRouteToTarget(IndicesToVertex(PositionToIndices(agent.transform.position)), IndicesToVertex(nextPosition));
-            routeToTarget.Push(IndicesToVertex(nextPosition));
+            FindRouteToTarget(IndicesToVertex(PositionToIndices(agent.transform.position)), IndicesToVertex(nextPosition));
+            //routeToTarget.Push(IndicesToVertex(nextPosition));
             targetLocations.RemoveAt(index);
         }
 
@@ -213,7 +261,7 @@ public class MoveTo : MonoBehaviour
 
     Vector3 IndicesToPosition(Vector3 a)
     {
-        return new Vector3(a.x * cellSize, 1, a.z * cellSize);
+        return new Vector3(a.x * cellSize + cellSize / 2.0f, 1, a.z * cellSize + cellSize / 2.0f);
     }
 
 
@@ -222,8 +270,18 @@ public class MoveTo : MonoBehaviour
     {
         Queue queueBFS = new Queue();
         Boolean[] visited = new Boolean[V];
+        int[] prevCell = new int[V];
+
+        for (int i = 0; i < V; i++)
+        {
+            prevCell[i] = -1;
+            visited[i] = false;
+        }
+
         queueBFS.Enqueue(src);
-        int cur = 0;
+        int cur = src;
+        visited[src] = true;
+
         while (queueBFS.Count != 0)
         {
             cur = (int)queueBFS.Dequeue();
@@ -236,38 +294,51 @@ public class MoveTo : MonoBehaviour
             for (int i = 0; i < graph[cur].Count; i++)
             {
                 int v = (int)((ArrayList)graph[cur])[i];
+
                 if (!visited[v])
                 {
                     visited[v] = true;
                     queueBFS.Enqueue(v);
+                    prevCell[v] = cur;
                 }
             }
         }
 
-
-        // save the path
+        // save the path in the route stack
         cur = dest;
-        while (true)
+        for (int i = 0; i < V; i++)
         {
-            routeToTarget.Push(cur);
             if (cur == src)
-            {
-                // done
                 break;
-            }
-
-            for (int i = 0; i < graph[cur].Count; i++)
-            {
-                int v = (int)graph[cur][i];
-                if (visited[v])
-                {
-                    cur = v;
-                    break;
-                }
-            }
+            routeToTarget.Push(cur);
+            cur = prevCell[cur];
         }
+
+        //Debug.Log("starting from " + src + " route to " + dest);    
+        //PrintRoute();
     }
 
+
+
+    void PrintRoute()
+    {
+        Stack x = new Stack();
+        String s = "";
+
+        while (routeToTarget.Count > 0)
+        {
+            int tmp = (int)routeToTarget.Pop();
+            s += tmp + ", ";
+            x.Push(tmp);
+        }
+        while (x.Count > 0)
+        {
+
+            routeToTarget.Push(x.Pop());
+        }
+
+        Debug.Log(s);
+    }
 
 
     // print the map
@@ -308,20 +379,28 @@ public class MoveTo : MonoBehaviour
                 // position of the cell
                 int tmpx = (int)agent.transform.position.x + (int)(range * directions[i].x),
                     tmpz = (int)agent.transform.position.z + (int)(range * directions[i].z);
-                Vector3 seenCell = new Vector3(tmpx, 1, tmpz);
 
-                if (CheckBoundaries(PositionToIndices(seenCell))) 
+                Vector3 seenCell = PositionToIndices(new Vector3(tmpx, 1, tmpz));
+
+                if (CheckBoundaries(seenCell))
                 {
                     // add this cell to the candidate target locations if it has adjacent unkown cells, 
                     // and if it wasn't added to the candidate list before.. i.e. if it has ?
-                    if (HasAdjacentUnknown(PositionToIndices(seenCell)) && map[tmpx / cellSize, tmpz / cellSize] == '?')
+                    if (HasAdjacentUnknown(seenCell) && map[tmpx / cellSize, tmpz / cellSize] == '?')
                     {
-                        targetLocations.Add(PositionToIndices(seenCell));
+                        targetLocations.Add(seenCell);
+                    }
+                    MarkCell(seenCell, empty);
+
+                    for (int k = 0; k < directions.Length; k++)
+                    {
+                        Vector3 surroundingCell = new Vector3(seenCell.x + directions[k].x, 1, seenCell.z + directions[k].z);
+                        if (CheckBoundaries(surroundingCell))
+                        {
+                            AddEdge(IndicesToVertex(seenCell), IndicesToVertex(surroundingCell));
+                        }
                     }
 
-                    MarkCell(PositionToIndices(seenCell), empty);
-                    // Debug.Log(PositionToIndices(agent.transform.position) + ", " + PositionToIndices(seenCell));
-                    //AddEdge(PositionToIndices(agent.transform.position), PositionToIndices(seenCell));
                 }
             }
         }
@@ -376,16 +455,13 @@ public class MoveTo : MonoBehaviour
 
 
 
-    // given indices of the cells as vectors
-    void AddEdge(Vector3 a, Vector3 b)
+    // given vertices, add an edge between them
+    void AddEdge(int a, int b)
     {
-        int a1 = IndicesToVertex(a),
-            b1 = IndicesToVertex(b);
-        if (!graph[a1].Contains(b1) && a1 != b1)
+        if (!graph[a].Contains(b) && a != b)
         {
-            //Debug.Log(a +": " + a1 +" -- "+ b +": " + b1);
-            graph[a1].Add(b1);
-            graph[b1].Add(a1);
+            graph[a].Add(b);
+            graph[b].Add(a);
         }
     }
 
