@@ -63,24 +63,6 @@ public class MoveTo : MonoBehaviour
             }
         }
 
-        //TMP: adding edges
-        //for (int i = 0; i < mapSize; i++)
-        //{
-        //    for (int j = 0; j < mapSize; j++)
-        //    {
-        //        for (int k = 0; k < directions.Length; k++)
-        //        {
-        //            Vector3 seenCell = new Vector3(i, 1, j);
-        //            Vector3 surroundingCell = new Vector3(seenCell.x + directions[k].x, 1, seenCell.z + directions[k].z);
-        //            if (CheckBoundaries(surroundingCell))
-        //            {
-        //                AddEdge(IndicesToVertex(seenCell), IndicesToVertex(surroundingCell));
-        //            }
-        //        }
-        //    }
-        //}
-
-
         // print vertices numbering
         String s = "";
         for (int i = 0; i < mapSize; i++)
@@ -97,7 +79,11 @@ public class MoveTo : MonoBehaviour
         Raycast8();
         PrintMap();
         //PrintTargetLocations();
-        if (!DoneExploring())
+        if (DoneExploring())
+        {
+            MarkUnreachable();
+        }
+        else
         {
             NewTarget();
         }
