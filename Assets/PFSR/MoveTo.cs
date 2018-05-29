@@ -21,19 +21,16 @@ public class MoveTo : MonoBehaviour
     private Stack routeToTarget;
 
     // radius of the view circle around the drone
-    private const int range = 6;
-    private const int cellSize = 6;
-    private const char empty = 'O', occupied = 'X', unknown = '?', unreachable = 'U';
-    private int mapSize;
+    private const int range = 11;
+    private const int cellSize = 8;
+    private const char empty = 'O', occupied = 'X', unknown = '?', unreachable = '#';
+    private int mapSize = 10;
     private int V;
-
-
-
+    
     void Start()
     {
         // the drone
         NavMeshAgent agent = GetComponent<NavMeshAgent>();
-        mapSize = 6;
         map = new char[mapSize, mapSize];
         targetLocations = new ArrayList();
         routeToTarget = new Stack();
@@ -45,13 +42,13 @@ public class MoveTo : MonoBehaviour
         // raycast directions
         directions = new Vector3[8];
         directions[0] = new Vector3(0, 0, 1);
-        directions[1] = new Vector3(0, 0, -1);
+        directions[1] = new Vector3(1, 0, 1);
         directions[2] = new Vector3(1, 0, 0);
-        directions[3] = new Vector3(-1, 0, 0);
-        directions[4] = new Vector3(1, 0, 1);
-        directions[5] = new Vector3(1, 0, -1);
-        directions[6] = new Vector3(-1, 0, 1);
-        directions[7] = new Vector3(-1, 0, -1);
+        directions[3] = new Vector3(1, 0, -1);
+        directions[4] = new Vector3(0, 0, -1);
+        directions[5] = new Vector3(-1, 0, -1);
+        directions[6] = new Vector3(-1, 0, 0);
+        directions[7] = new Vector3(-1, 0, 1);
 
         // initialize the map
         for (int i = 0; i < mapSize; i++)
@@ -76,18 +73,19 @@ public class MoveTo : MonoBehaviour
 
         // initial target, to start exploring
         MarkCell(PositionToIndices(agent.transform.position), empty);
+        
         Raycast8();
+        PrintTargetLocations();
         PrintMap();
-        //PrintTargetLocations();
         if (DoneExploring())
         {
             MarkUnreachable();
+            PrintMap();
         }
         else
         {
             NewTarget();
         }
-        //PrintGraph();
     }
 
 
@@ -96,10 +94,10 @@ public class MoveTo : MonoBehaviour
     {
         Raycast8();
         RemoveCandidates();
-        //if (DoneExploring())
-        //{
-        //    PrintGraph();
-        //}
+        if(DoneExploring())
+        {
+            PrintMap();
+        }
     }
 
 
@@ -133,12 +131,13 @@ public class MoveTo : MonoBehaviour
 
     void OnCollisionEnter(Collision collision)
     {
+        PrintTargetLocations();
         // if the drone hit a target and there are more places to explore
         if (collision.collider.tag == targetTag)
         {
             // destroy on reaching the object
             Destroy(collision.gameObject);
-            //PrintGraph();
+
             // create a new target
             if (!DoneExploring())
             {
@@ -151,8 +150,6 @@ public class MoveTo : MonoBehaviour
             }
 
             PrintMap();
-            //PrintTargetLocations();
-            //PrintGraph();
         }
     }
 
@@ -209,10 +206,10 @@ public class MoveTo : MonoBehaviour
 
         // set target position and agent destination to the next point on the path
         int nextVertix = (int)routeToTarget.Pop();
+
         nextPosition = IndicesToPosition(VertexToIndices(nextVertix));
         targetInstance.transform.position = nextPosition;
         agent.destination = targetInstance.transform.position;
-
     }
 
 
@@ -294,14 +291,11 @@ public class MoveTo : MonoBehaviour
         cur = dest;
         for (int i = 0; i < V; i++)
         {
-            if (cur == src)
+            if (cur == src || cur == -1)
                 break;
             routeToTarget.Push(cur);
             cur = prevCell[cur];
         }
-
-        //Debug.Log("starting from " + src + " route to " + dest);    
-        //PrintRoute();
     }
 
 
@@ -349,8 +343,10 @@ public class MoveTo : MonoBehaviour
         RaycastHit hit;
 
         // Raycast in the 8 directions
+
         for (int i = 0; i < directions.Length; i++)
         {
+            
             if (Physics.Raycast(agent.transform.position, directions[i], out hit, range))
             {
                 if (hit.collider.tag == obstacleTag)
@@ -365,19 +361,18 @@ public class MoveTo : MonoBehaviour
                 // position of the cell
                 int tmpx = (int)agent.transform.position.x + (int)(range * directions[i].x),
                     tmpz = (int)agent.transform.position.z + (int)(range * directions[i].z);
-
                 Vector3 seenCell = PositionToIndices(new Vector3(tmpx, 1, tmpz));
-
                 if (CheckBoundaries(seenCell))
                 {
                     // add this cell to the candidate target locations if it has adjacent unkown cells, 
-                    // and if it wasn't added to the candidate list before.. i.e. if it has ?
-                    if (HasAdjacentUnknown(seenCell) && map[tmpx / cellSize, tmpz / cellSize] == '?')
+                    // and if it wasn't added to the candidate list before.. i.e. if it has ?                   
+                    if (HasAdjacentUnknown(seenCell) && map[(int)seenCell.x, (int)seenCell.z] == '?')
                     {
                         targetLocations.Add(seenCell);
                     }
                     MarkCell(seenCell, empty);
 
+                    // adding edges between empty cells, surrounding this cell
                     for (int k = 0; k < directions.Length; k++)
                     {
                         Vector3 surroundingCell = new Vector3(seenCell.x + directions[k].x, 1, seenCell.z + directions[k].z);
@@ -386,7 +381,6 @@ public class MoveTo : MonoBehaviour
                             AddEdge(IndicesToVertex(seenCell), IndicesToVertex(surroundingCell));
                         }
                     }
-
                 }
             }
         }
@@ -395,7 +389,7 @@ public class MoveTo : MonoBehaviour
 
     Vector3 PositionToIndices(Vector3 a)
     {
-        return new Vector3((int)a.x / cellSize, 1, (int)a.z / cellSize);
+        return new Vector3((int)(a.x / cellSize), 1, (int)(a.z / cellSize));
     }
 
 
